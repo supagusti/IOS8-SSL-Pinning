@@ -9,7 +9,7 @@
 // ------------------- IMPORTANT ---------------------
 //
 // DONT FORGET TO IMPORT A CERTIFICATE OF TYPE "DER" INTO THE PROJECT !!!!!
-//
+// Edit: If the certificate doesn't exist, it will be downloaded from the web.
 
 
 
@@ -26,6 +26,58 @@
     [super viewDidLoad];
     // Do any additional setup after loading the view, typically from a nib.
     NSLog(@"View Did Load...");
+    
+    
+    //Download certificate
+    [self printMessage:@"----------------------------------------------\nCheck for new Certificate\n----------------------------------------------"];
+    //Create certs folder
+    NSError *createDirError;
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES);
+    NSString *libDirectory = [paths objectAtIndex:0]; // Get Library folder
+    //NSLog(@"found folders: %@",paths);
+    NSString *dataPath = [libDirectory stringByAppendingPathComponent:@"/certs"];
+
+    if (![[NSFileManager defaultManager] fileExistsAtPath:dataPath])
+    {
+        //Create Folder
+        [[NSFileManager defaultManager] createDirectoryAtPath:dataPath withIntermediateDirectories:NO attributes:nil error:&createDirError];
+    }
+    
+    //Download the certificate (synchonous)
+    NSError *downloadError;
+    NSString *stringURL = @"http://www.mitschke.tk/cert/star.mitschke.tk.der.cer";
+    NSURL  *url = [NSURL URLWithString:stringURL];
+    NSData *urlData = [NSData dataWithContentsOfURL:url options:NSDataReadingUncached error:&downloadError];
+    if (downloadError)
+    {
+       [self printMessage:@"Error in certificate data download!"];
+        NSLog(@"%@", [downloadError localizedDescription]);
+
+    }
+    else
+    {
+       [self printMessage:@"Certificate data has been downloaded successfully."];
+    }
+    
+    
+    if ( urlData )
+    {
+        NSLog(@"Certificate Download finished!");
+        NSString  *cerPath = [NSString stringWithFormat:@"%@/certs/%@", libDirectory,@"star.mitschke.tk.der.cer"];
+        NSData *localCert = [NSData dataWithContentsOfFile:cerPath];
+        
+        if ([urlData isEqualToData:localCert])
+        {
+            [self printMessage:@"Certs are equal - do not save"];
+        }
+        else
+        {
+            [self printMessage:@"Certs are NOT equal - saving..."];
+            [urlData writeToFile:cerPath atomically:YES];
+        }
+    }
+    
+    [self printMessage:@"----------------------------------------------\nCheck for new Certificate finished!\n----------------------------------------------"];
 
 }
 
@@ -57,6 +109,12 @@
     NSData *localCertificateData = [self localCertificate];
     //NSLog(@"localCertificateData = %@",localCertificateData);
     
+    CFStringRef certSummary = SecCertificateCopySubjectSummary(certificate);
+    NSString* summaryString = [[NSString alloc]initWithString:(__bridge NSString *)certSummary];
+    NSLog(@"remote CertData \n---------START ----------\n%@\n-----------END--------------\n",summaryString);
+    
+    
+    
     if ([remoteCertificateData isEqualToData:localCertificateData]) {
         
        [self printMessage:@"The server's certificate is the valid certificate. Allowing the request."];
@@ -84,18 +142,50 @@
 - (void)connectionDidFinishLoading:(NSURLConnection *)connection
 {
     NSString *response = [[NSString alloc] initWithData:self.responseData encoding:NSUTF8StringEncoding];
-    [self printMessage:response];
+    [self printMessage:[NSString stringWithFormat:@"\nWebserver responded:%@",response]];
     self.responseData = nil;
 }
 
 
 - (NSData *)localCertificate
 {
-    NSString *cerPath = [[NSBundle mainBundle] pathForResource:@"star.mitschke.tk.der" ofType:@"cer"];
-    NSData *localCert = [NSData dataWithContentsOfFile:cerPath];
-    //NSLog(@"CertPath= %@ CertData=%@",cerPath,localCert);
+    //Downloaded Certificate:
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES);
+    NSString *libDirectory = [paths objectAtIndex:0]; // Get Library folder
+    NSString  *cerPath = [NSString stringWithFormat:@"%@/certs/%@", libDirectory,@"star.mitschke.tk.der.cer"];
+    
+    BOOL fileExists = [[NSFileManager defaultManager] fileExistsAtPath:cerPath];
+    NSData *localCert = nil;
+    if (fileExists)
+    {
+       [self printMessage:@"Using local (downloaded) certificate data "];
+        localCert = [NSData dataWithContentsOfFile:cerPath];
+    }
+    else
+    {
+        [self printMessage:@"Local (downloaded) certificate data is empty, using bundle data instead!"];
+        //Bundle stored Certificate
+        NSString *cerPath = [[NSBundle mainBundle] pathForResource:@"star.mitschke.tk.der" ofType:@"cer"];
+        localCert = [NSData dataWithContentsOfFile:cerPath];
+        //NSLog(@"CertPath= %@ CertData=%@",cerPath,localCert);
+    }
+
+    
+    //Do some cert info....
+    CFDataRef CertCFDataRef = (__bridge CFDataRef)localCert;
+    SecCertificateRef thisCert = SecCertificateCreateWithData(nil,CertCFDataRef);
+    
+    CFStringRef certSummary = SecCertificateCopySubjectSummary(thisCert);
+    NSString* summaryString = [[NSString alloc]initWithString:(__bridge NSString *)certSummary];
+    NSLog(@"local CertData \n---------START ----------\n%@\n-----------END--------------\n",summaryString);
+    
+    
+    
     return localCert;
+  
 }
+
+
 
 
 - (void)printMessage:(NSString *)message
